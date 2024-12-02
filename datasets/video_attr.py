@@ -40,6 +40,7 @@ class Video_dataset(data.Dataset):
                  num_sample=1,
                  select_topk_attributes=5,
                  attributes_path=None,
+                 mediapipe_data=None,
                  train_video=True):
 
         self.root_path = root_path
@@ -67,18 +68,23 @@ class Video_dataset(data.Dataset):
                               "MASK_TOKEN": "[MASK]", "UNK_TOKEN": "[UNK]", "PAD_TOKEN": "[PAD]"}
         if self.attributes_path != None:
             self.generate_attributes_split_data = json.load(open(self.attributes_path, 'r'))
-        self.select_topk_attributes = select_topk_attributes
 
-        if self.dense_sample:
-            print('=> Using dense sample for the dataset...')
-        if self.num_sample > 1:
-            print('=> Using repeated augmentation...')
+        if self.mediapipe_data != None:
+            #TODO: load mediapipe data
+            pass
+        else:
+            self.select_topk_attributes = select_topk_attributes
 
-        if self.index_bias is None:
-            if self.image_tmpl == "frame{:d}.jpg":
-                self.index_bias = 0
-            else:
-                self.index_bias = 1
+            if self.dense_sample:
+                print('=> Using dense sample for the dataset...')
+            if self.num_sample > 1:
+                print('=> Using repeated augmentation...')
+
+            if self.index_bias is None:
+                if self.image_tmpl == "frame{:d}.jpg":
+                    self.index_bias = 0
+                else:
+                    self.index_bias = 1
         self._parse_list()
 
 
