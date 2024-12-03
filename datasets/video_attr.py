@@ -13,6 +13,8 @@ from PIL import Image
 import math
 import copy
 from clip.simple_tokenizer import SimpleTokenizer as ClipTokenizer
+import mediapipe as mp
+import cv2
 
 class VideoRecord(object):
     def __init__(self, row):
@@ -41,7 +43,8 @@ class Video_dataset(data.Dataset):
                  select_topk_attributes=5,
                  attributes_path=None,
                  mediapipe_data=None,
-                 train_video=True):
+                 train_video=True,
+                 train_pose=False):
 
         self.root_path = root_path
         self.list_file = list_file
@@ -59,6 +62,11 @@ class Video_dataset(data.Dataset):
         self.dense_sample = dense_sample  # using dense sample as I3D
         self.test_clips = test_clips
         self.num_sample = num_sample
+        self.train_pose = train_pose
+
+        self.mp_drawing = mp.solutions.drawing_utils
+        self.mp_drawing_styles = mp.solutions.drawing_styles
+        self.mp_hands = mp.solutions.hands
 
         self.max_words = 77
         self.attributes_path = attributes_path
@@ -67,24 +75,25 @@ class Video_dataset(data.Dataset):
         self.SPECIAL_TOKEN = {"CLS_TOKEN": "<|startoftext|>", "SEP_TOKEN": "<|endoftext|>",
                               "MASK_TOKEN": "[MASK]", "UNK_TOKEN": "[UNK]", "PAD_TOKEN": "[PAD]"}
         if self.attributes_path != None:
+            print(type(self.attributes_path))
             self.generate_attributes_split_data = json.load(open(self.attributes_path, 'r'))
 
-        if self.mediapipe_data != None:
-            #TODO: load mediapipe data
-            pass
-        else:
-            self.select_topk_attributes = select_topk_attributes
+        # if self.mediapipe_data != None:
+        #     #TODO: load mediapipe data
 
-            if self.dense_sample:
-                print('=> Using dense sample for the dataset...')
-            if self.num_sample > 1:
-                print('=> Using repeated augmentation...')
+        #     pass
+        self.select_topk_attributes = select_topk_attributes
 
-            if self.index_bias is None:
-                if self.image_tmpl == "frame{:d}.jpg":
-                    self.index_bias = 0
-                else:
-                    self.index_bias = 1
+        if self.dense_sample:
+            print('=> Using dense sample for the dataset...')
+        if self.num_sample > 1:
+            print('=> Using repeated augmentation...')
+
+        if self.index_bias is None:
+            if self.image_tmpl == "frame{:d}.jpg":
+                self.index_bias = 0
+            else:
+                self.index_bias = 1
         self._parse_list()
 
 
@@ -186,7 +195,7 @@ class Video_dataset(data.Dataset):
         
         return container
 
-    def __getitem__(self, index):
+    def __getitem__(self, index, debug=False):
         # decode frames to video_list
         if self.modality == 'video':
             _num_retries = 10
@@ -214,6 +223,13 @@ class Video_dataset(data.Dataset):
                 segment_indices = self._get_test_indices(video_list)
 
             return self.get(record, video_list, segment_indices)
+        elif self.train_pose == True:
+            if not self.test_mode: # train/val
+                segment_indices = self._sample_indices(video_list) if self.random_shift else self._get_val_indices(video_list)
+            else: # test
+                segment_indices = self._get_test_indices(video_list)
+
+            return self.get_3d_hand_pose(record, video_list, segment_indices, debug)
         else:
             return self.get_attributes(record)
 
@@ -245,6 +261,7 @@ class Video_dataset(data.Dataset):
                 process_data, record_label = self.transform((images, record.label))
                 frame_list.append(process_data)
                 label_list.append(record_label)
+
             return frame_list, label_list
         else:
             process_data, record_label = self.transform((images, record.label))
@@ -280,5 +297,73 @@ class Video_dataset(data.Dataset):
             pairs_text[i] = np.array(input_ids)
             pairs_mask[i] = np.array(input_mask)
         return pairs_text, pairs_mask,label_id
+
+    def mediapipe_to_numpy(self, landmark):
+        np_arr = np.zeros(shape=(len(landmark), 3), dtype=float)
+        for i, _landmark in enumerate(landmark):
+            np_arr[i, 0] = _landmark.x
+            np_arr[i, 1] = _landmark.y
+            np_arr[i, 2] = _landmark.z
+        return np_arr
+
+    def numpy_to_mediapipe(self, np_arr):
+        # Create a LandmarkList object
+        landmark_list_list = []
+        
+        # Iterate through each row in the NumPy array
+        for row in np_arr:
+            landmark_list = LandmarkList()
+            # Create a new Landmark for each set of coordinates
+            for coor in row:
+                landmark = Landmark()
+                landmark.x = coor[0]
+                landmark.y = coor[1]
+                landmark.z = coor[2]
+                # Append the Landmark to the LandmarkList
+                landmark_list.landmark.append(landmark)
+            landmark_list_list.append(landmark_list)
+
+        return landmark_list_list
+
+    def get_pose(self, frame):
+        hand_pose = np.zeros((21, 3))
+        with self.mp_hands.Hands(
+            static_image_mode=True,
+            max_num_hands=2,
+            min_detection_confidence=0.5) as hands:
+            image = np.array(frame)
+            image = cv2.flip(image, 1)
+            results = hands.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+            if not results.multi_hand_landmarks:
+                return hand_pose
+            else:
+                for hand_world_landmarks in results.multi_hand_world_landmarks:
+                    np_arr = self.mediapipe_to_numpy(hand_world_landmarks.landmark)
+
+                return np_arr
+
+    def get_3d_hand_pose(self, record, video_list, indices, debug=False):
+        poses = list()
+        if debug:
+            print(indices)
+        for seg_ind in indices:
+            p = int(seg_ind)
+            if self.modality == 'video':
+                image = Image.fromarray(video_list[p - 1].asnumpy()).convert('RGB')
+                image = cv2.flip(frame, 1)
+                seg_imgs = [self.get_pose(image)]
+            else:
+                imgs = self._load_image(record.path, p)
+                seg_imgs = []
+                for img in imgs:
+                    seg_imgs.append(self.get_pose(img))
+            poses.extend(seg_imgs)
+            if p < len(video_list):
+                p += 1
+        
+        label_id = record.label
+        return torch.from_numpy(np.array(poses)), label_id
+
+
     def __len__(self):
         return len(self.video_list)
