@@ -165,6 +165,52 @@ class video_header(nn.Module):
 class sentence_text_logit(nn.Module):
     def __init__(self, clip_state_dict):
         super().__init__()
+        # Won't this tell us the shape? This is how attribute does it and they use Linear layers too 
+
+        ## yess! embed_dim is what we need. it is 768 then. we can use this and fix it if it gives us any errors
+
+        embed_dim = clip_state_dict["text_projection"].shape[1] if clip_state_dict != None else 512
+        self.query_fc = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim), nn.ReLU(inplace=True),
+            nn.Linear(embed_dim, embed_dim))
+        self.sentence_fc = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim), nn.ReLU(inplace=True),
+            nn.Linear(embed_dim, embed_dim))
+        self.apply(self.init_weights)
+
+    def init_weights(self, module):
+        if isinstance(module, (nn.Linear, nn.Embedding)):
+            module.weight.data.normal_(mean=0.0, std=0.02)
+        elif isinstance(module, LayerNorm):
+            if 'beta' in dir(module) and 'gamma' in dir(module):
+                module.beta.data.zero_()
+                module.gamma.data.fill_(1.0)
+            else:
+                module.bias.data.zero_()
+                module.weight.data.fill_(1.0)
+        if isinstance(module, nn.Linear) and module.bias is not None:
+            module.bias.data.zero_()
+
+    def get_sentence_query_logits(self, query_cls_feat, sentece_cls_feat, query_mask=None, sentence_mask=None):
+        query_cls_feat = self.query_fc(query_cls_feat)
+        sentece_cls_feat = self.sentence_fc(sentece_cls_feat)
+        sentece_cls_feat = sentece_cls_feat / sentece_cls_feat.norm(dim=-1, keepdim=True)
+        query_cls_feat = query_cls_feat / query_cls_feat.norm(dim=-1, keepdim=True)
+        logit = sentece_cls_feat @ query_cls_feat.t()
+        return logit
+
+    def forward(self, query_cls_emb=None, sentence_cls_features=None):
+        logits = self.get_sentence_query_logits(query_cls_feat=query_cls_emb, sentece_cls_feat=sentence_cls_features)
+        return logits
+
+
+class hand_pose_logit(nn.Module):
+    def __init__(self, clip_state_dict):
+        super().__init__()
+        # Won't this tell us the shape? This is how attribute does it and they use Linear layers too 
+
+        ## yess! embed_dim is what we need. it is 768 then. we can use this and fix it if it gives us any errors
+
         embed_dim = clip_state_dict["text_projection"].shape[1] if clip_state_dict != None else 512
         self.query_fc = nn.Sequential(
             nn.Linear(embed_dim, embed_dim), nn.ReLU(inplace=True),

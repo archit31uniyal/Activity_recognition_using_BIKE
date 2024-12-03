@@ -150,7 +150,7 @@ def main(args):
     logger.info('train transforms: {}'.format(transform_train.transforms))
     logger.info('val transforms: {}'.format(transform_val.transforms))
 
-    sentence_head = sentence_text_logit(clip_state_dict)
+    handpose_head = hand_pose_logit(clip_state_dict)
 
 
     if args.precision == "amp" or args.precision == "fp32":
@@ -205,7 +205,7 @@ def main(args):
             logger.info("=> loading checkpoint '{}'".format(config.pretrain))
             checkpoint = torch.load(config.pretrain, map_location='cpu')
             model.load_state_dict(checkpoint['model_state_dict'])
-            sentence_head.load_state_dict(checkpoint['fusion_model_state_dict'])
+            handpose_head.load_state_dict(checkpoint['fusion_model_state_dict'])
             del checkpoint
         else:
             logger.info("=> no checkpoint found at '{}'".format(config.resume))
@@ -215,7 +215,7 @@ def main(args):
             logger.info("=> loading checkpoint '{}'".format(config.resume))
             checkpoint = torch.load(config.resume, map_location='cpu')
             model.load_state_dict(update_dict(checkpoint['model_state_dict']))
-            sentence_head.load_state_dict(update_dict(checkpoint['fusion_model_state_dict']))
+            handpose_head.load_state_dict(update_dict(checkpoint['fusion_model_state_dict']))
             start_epoch = checkpoint['epoch'] + 1
             logger.info("=> loaded checkpoint '{}' (epoch {})"
                    .format(config.evaluate, checkpoint['epoch']))
@@ -223,22 +223,24 @@ def main(args):
         else:
             logger.info("=> no checkpoint found at '{}'".format(config.pretrain))
 
+    # "This is a video about {}" and then the class name goes there (this is CLIP input for sure) 
     classes = text_prompt(train_data)
     n_class = classes.size(0)
 
 
     for name, param in model.named_parameters():
+        # freeze all parameters except visual and logit scale in CLIP
         if "visual" not in name and "logit_scale" not in name:
             param.requires_grad_(False)
   
 
-    optimizer = _optimizer(config, model, sentence_head)
+    optimizer = _optimizer(config, model, handpose_head)
     lr_scheduler = _lr_scheduler(config, optimizer)
 
     if args.distributed:
         model = DistributedDataParallel(model.cuda(), device_ids=[args.gpu])
-        sentence_head = DistributedDataParallel(sentence_head.cuda(), device_ids=[args.gpu])
-        sentence_head_nomodule = sentence_head.module
+        handpose_head = DistributedDataParallel(handpose_head.cuda(), device_ids=[args.gpu])
+        handpose_head_nomodule = handpose_head.module
         
 
     scaler = GradScaler() if args.precision == "amp" else None
@@ -246,7 +248,7 @@ def main(args):
     best_prec1 = 0.0
     if config.solver.evaluate:
         logger.info(("===========evaluate==========="))
-        prec1, output_list, labels_list = validate_text(start_epoch, val_loader, classes, device, model, sentence_head, config, n_class, logger)
+        prec1, output_list, labels_list = validate_text(start_epoch, val_loader, classes, device, model, handpose_head, config, n_class, logger)
         if dist.get_rank() == 0:
             save_sims(output_list, labels_list)
         return
@@ -257,11 +259,11 @@ def main(args):
         if args.distributed:
             train_loader.sampler.set_epoch(epoch)
 
-        train_sentence(model, sentence_head, train_loader, optimizer, criterion, scaler,
+        train_handpose(model, handpose_head, train_loader, optimizer, criterion, scaler,
                        epoch, device, lr_scheduler, config, classes, logger)
 
         if (epoch+1) % config.logging.eval_freq == 0:  # and epoch>0
-            prec1, output_list, labels_list = validate_text(start_epoch, val_loader, classes, device, model, sentence_head, config, n_class,logger)
+            prec1, output_list, labels_list = validate_text(start_epoch, val_loader, classes, device, model, handpose_head, config, n_class,logger)
             if dist.get_rank() == 0:
                 is_best = prec1 > best_prec1
                 best_prec1 = max(prec1, best_prec1)
@@ -269,10 +271,10 @@ def main(args):
                 logger.info('Saving:')
                 filename = "{}/last_model.pt".format(working_dir)
 
-                epoch_saving(epoch, model.module, sentence_head_nomodule, optimizer, filename)
+                epoch_saving(epoch, model.module, handpose_head_nomodule, optimizer, filename)
                 if is_best:
                     save_sims(output_list, labels_list)
-                    best_saving(working_dir, epoch, model.module, sentence_head_nomodule, optimizer)
+                    best_saving(working_dir, epoch, model.module, handpose_head_nomodule, optimizer)
 
 def train_handpose(model, fusion_model, train_loader, optimizer, criterion, scaler,
           epoch, device, lr_scheduler, config, classes, logger):
@@ -368,97 +370,7 @@ def train_handpose(model, fusion_model, train_loader, optimizer, criterion, scal
                 epoch, i, len(train_loader), eta_sec, batch_time=batch_time, data_time=data_time, loss=losses,
                 lr=optimizer.param_groups[-1]['lr'])))  # TODO
 
-def train_sentence(model, fusion_model, train_loader, optimizer, criterion, scaler,
-          epoch, device, lr_scheduler, config, classes, logger):
 
-    batch_time = AverageMeter()
-    data_time = AverageMeter()
-    losses = AverageMeter()
-    model.train()
-    fusion_model.train()
-    autocast = torch.cuda.amp.autocast if args.precision == 'amp' else suppress
-    end = time.time()
-    for i, (classname_sentence, classname_sentence_mask, class_id) in enumerate(train_loader):
-        if config.solver.type != 'monitor':
-            if (i + 1) == 1 or (i + 1) % 10 == 0:
-                lr_scheduler.step(epoch + i / len(train_loader))
-
-        data_time.update(time.time() - end)
-        classname_sentence = classname_sentence.to(device).reshape(-1, classname_sentence.shape[-1])
-        b, num_token = classname_sentence.size()
-        class_id = class_id.to(device)
-
-        texts = classes
-        texts = texts.to(device)
-
-        with autocast():
-            if config.solver.loss_type in ['NCE', 'DS']:
-                batch_texts = texts[class_id]
-                batch_texts = batch_texts.to(device)
-                classname_sentence_features_cls, classname_sentence_features = model.module.encode_text(classname_sentence, return_token=True)
-                classname_sentence_features = classname_sentence_features / classname_sentence_features.norm(dim=-1,keepdim=True)
-                classname_sentence_features_cls = classname_sentence_features_cls / classname_sentence_features_cls.norm(dim=-1,keepdim=True)
-
-                text_cls_features, text_features = model.module.encode_text(batch_texts, return_token=True)
-                text_features = text_features / text_features.norm(dim=-1,keepdim=True)
-                text_cls_features = text_cls_features / text_cls_features.norm(dim=-1, keepdim=True)
-                classname_sentence_features = allgather(classname_sentence_features)
-                classname_sentence_features_cls = allgather(classname_sentence_features_cls)
-                text_features = allgather(text_features)
-                text_cls_features = allgather(text_cls_features)
-                logit_scale = model.module.logit_scale.exp()
-                logits = logit_scale * fusion_model(query_cls_emb=text_cls_features, sentence_cls_features=classname_sentence_features_cls)
-                class_id = gather_labels(class_id.to(device))
-                ground_truth = torch.tensor(gen_label(class_id), dtype=classname_sentence_features.dtype, device=device)
-                loss_sentence = criterion(logits, ground_truth)
-                loss_texts = criterion(logits.T, ground_truth)
-                loss = (loss_sentence + loss_texts) / 2
-            elif config.solver.loss_type == 'CE':
-                logit_scale = model.logit_scale.exp()
-                batch_texts = texts[class_id]
-                classname_sentence_features = model.module.encode_text(classname_sentence, return_token=False)
-                classname_sentence_features = classname_sentence_features / classname_sentence_features.norm(dim=-1,keepdim=True)
-                text_features = model.module.encode_text(batch_texts, return_token=False)
-                text_features = text_features / text_features.norm(dim=-1,keepdim=True)
-                logits = logit_scale*torch.matmul(classname_sentence_features, text_features.t())
-                loss = criterion(logits, class_id.to(device))
-            else:
-                raise NotImplementedError
-
-            loss = loss / config.solver.grad_accumulation_steps
-
-        if scaler is not None:
-            # back propagation
-            scaler.scale(loss).backward()
-            if (i + 1) % config.solver.grad_accumulation_steps == 0:
-                scaler.step(optimizer)
-                scaler.update()
-                optimizer.zero_grad()  # reset gradient
-        else:
-            # back propagation
-            loss.backward()
-            if (i + 1) % config.solver.grad_accumulation_steps == 0:
-                optimizer.step()  # update param
-                optimizer.zero_grad()  # reset gradient
-
-        losses.update(loss.item(), logits.size(0))
-
-
-
-        batch_time.update(time.time() - end)
-        end = time.time()
-        cur_iter = epoch * len(train_loader) + i
-        max_iter = config.solver.epochs * len(train_loader)
-        eta_sec = batch_time.avg * (max_iter - cur_iter + 1)
-        eta_sec = str(datetime.timedelta(seconds=int(eta_sec)))
-
-        if i % config.logging.print_freq == 0:
-            logger.info(('Epoch: [{0}][{1}/{2}], lr: {lr:.2e}, eta: {3}\t'
-                         'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-                         'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
-                         'Loss {loss.val:.4f} ({loss.avg:.4f})'.format(
-                epoch, i, len(train_loader), eta_sec, batch_time=batch_time, data_time=data_time, loss=losses,
-                lr=optimizer.param_groups[-1]['lr'])))  # TODO
 
 def validate_text(epoch, val_loader, classes, device, model, fusion_model, config, n_class, logger):
     top1 = AverageMeter()
@@ -513,8 +425,8 @@ def save_sims(output_list, labels_list):
     outputs_sim = torch.cat(output_list, dim=0)
     labels_list_res = torch.cat(labels_list, dim=0)
     prec = accuracy(outputs_sim, labels_list_res, topk=(1, 5))
-    torch.save(outputs_sim, 'video_sentence_fusion/k400_sentence_sims.pt')
-    torch.save(labels_list_res,'video_sentence_fusion/k400_sentence_labels.pt')
+    torch.save(outputs_sim, 'video_handpose_fusion/k400_handpose_sims.pt')
+    torch.save(labels_list_res,'video_handpose_fusion/k400_handpose_labels.pt')
     # print('outputs_sim.shape==',outputs_sim.shape)
     # print('labels_list_res.shape===',labels_list_res.shape)
     # print('top1====',prec[0].item())
