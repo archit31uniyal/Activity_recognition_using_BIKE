@@ -215,8 +215,8 @@ class hand_pose_logit(nn.Module):
         self.query_fc = nn.Sequential(
             nn.Linear(embed_dim, embed_dim), nn.ReLU(inplace=True),
             nn.Linear(embed_dim, embed_dim))
-        self.sentence_fc = nn.Sequential(
-            nn.Linear(embed_dim, embed_dim), nn.ReLU(inplace=True),
+        self.handpose_fc = nn.Sequential(
+            nn.Linear(16*21*3, embed_dim), nn.ReLU(inplace=True),
             nn.Linear(embed_dim, embed_dim))
         self.apply(self.init_weights)
 
@@ -233,14 +233,14 @@ class hand_pose_logit(nn.Module):
         if isinstance(module, nn.Linear) and module.bias is not None:
             module.bias.data.zero_()
 
-    def get_sentence_query_logits(self, query_cls_feat, sentece_cls_feat, query_mask=None, sentence_mask=None):
+    def get_handpose_query_logits(self, query_cls_feat, handpose_cls_feat, query_mask=None, handpose_mask=None):
         query_cls_feat = self.query_fc(query_cls_feat)
-        sentece_cls_feat = self.sentence_fc(sentece_cls_feat)
-        sentece_cls_feat = sentece_cls_feat / sentece_cls_feat.norm(dim=-1, keepdim=True)
+        handpose_cls_feat = self.handpose_fc(handpose_cls_feat)
+        handpose_cls_feat = handpose_cls_feat / handpose_cls_feat.norm(dim=-1, keepdim=True)
         query_cls_feat = query_cls_feat / query_cls_feat.norm(dim=-1, keepdim=True)
-        logit = sentece_cls_feat @ query_cls_feat.t()
+        logit = handpose_cls_feat @ query_cls_feat.t()
         return logit
 
-    def forward(self, query_cls_emb=None, sentence_cls_features=None):
-        logits = self.get_sentence_query_logits(query_cls_feat=query_cls_emb, sentece_cls_feat=sentence_cls_features)
+    def forward(self, query_cls_emb=None, handpose_cls_features=None):
+        logits = self.get_handpose_query_logits(query_cls_feat=query_cls_emb, handpose_cls_feat=handpose_cls_features)
         return logits
