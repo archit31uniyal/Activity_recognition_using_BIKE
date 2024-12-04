@@ -16,6 +16,7 @@ import numpy as np
 from utils.utils import init_distributed_mode, epoch_saving, best_saving, AverageMeter, reduce_tensor, accuracy, create_logits, gen_label, gather_labels
 from utils.logger import setup_logger
 import clip
+from mlp import Mlp
 
 from pathlib import Path
 import yaml
@@ -27,7 +28,7 @@ import shutil
 from contextlib import suppress
 
 from datasets.video_attr import Video_dataset
-from modules.video_clip import sentence_text_logit
+from modules.video_clip import sentence_text_logit, hand_pose_logit
 from utils.NCELoss import NCELoss, DualLoss
 from utils.Augmentation import get_augmentation
 from utils.solver import _optimizer, _lr_scheduler
@@ -150,7 +151,7 @@ def main(args):
     logger.info('train transforms: {}'.format(transform_train.transforms))
     logger.info('val transforms: {}'.format(transform_val.transforms))
 
-    handpose_head = hand_pose_logit(clip_state_dict)
+    handpose_head = Mlp(63, 63//4, 768)
 
 
     if args.precision == "amp" or args.precision == "fp32":
@@ -224,8 +225,9 @@ def main(args):
             logger.info("=> no checkpoint found at '{}'".format(config.pretrain))
 
     # "This is a video about {}" and then the class name goes there (this is CLIP input for sure) 
-    classes = text_prompt(train_data)
-    n_class = classes.size(0)
+    # classes = text_prompt(train_data)
+    # n_class = classes.size(0)
+    n_class = 10
 
 
     for name, param in model.named_parameters():
@@ -295,21 +297,21 @@ def train_handpose(model, fusion_model, train_loader, optimizer, criterion, scal
         # flatten? 336x3 matrix
         pose = pose.to(device).reshape(-1, pose.shape[-1])
         # idk what to do here
-        b, num_token = pose.size()
+        # b, num_token = pose.size()
         class_id = class_id.to(device)
 
-        texts = classes
-        texts = texts.to(device)
+        # texts = classes
+        # texts = texts.to(device)
 
         with autocast():
             if config.solver.loss_type in ['NCE', 'DS']:
-                batch_texts = texts[class_id]
-                batch_texts = batch_texts.to(device)
-                classname_sentence_features_cls, classname_sentence_features = model.module.encode_text(classname_sentence, return_token=True)
+                # batch_texts = texts[class_id]
+                # batch_texts = batch_texts.to(device)
+                classname_sentence_features_cls, classname_sentence_features = model.module.encode_text(class_id, return_token=True)
                 classname_sentence_features = classname_sentence_features / classname_sentence_features.norm(dim=-1,keepdim=True)
                 classname_sentence_features_cls = classname_sentence_features_cls / classname_sentence_features_cls.norm(dim=-1,keepdim=True)
 
-                text_cls_features, text_features = model.module.encode_text(batch_texts, return_token=True)
+                logits = model.module.encode_text(batch_texts, return_token=True)
                 text_features = text_features / text_features.norm(dim=-1,keepdim=True)
                 text_cls_features = text_cls_features / text_cls_features.norm(dim=-1, keepdim=True)
                 classname_sentence_features = allgather(classname_sentence_features)
