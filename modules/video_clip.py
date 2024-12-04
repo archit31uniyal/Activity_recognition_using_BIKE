@@ -216,7 +216,7 @@ class hand_pose_logit(nn.Module):
             nn.Linear(embed_dim, embed_dim), nn.ReLU(inplace=True),
             nn.Linear(embed_dim, embed_dim))
         self.handpose_fc = nn.Sequential(
-            nn.Linear(16*21*3, embed_dim), nn.ReLU(inplace=True),
+            nn.Linear(32*16*21*3, embed_dim), nn.ReLU(inplace=True),
             nn.Linear(embed_dim, embed_dim))
         self.apply(self.init_weights)
 

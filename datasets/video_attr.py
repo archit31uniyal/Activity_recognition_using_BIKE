@@ -299,7 +299,7 @@ class Video_dataset(data.Dataset):
         return pairs_text, pairs_mask,label_id
 
     def mediapipe_to_numpy(self, landmark):
-        np_arr = np.zeros(shape=(len(landmark), 3), dtype=float)
+        np_arr = np.zeros(shape=(len(landmark), 3), dtype=np.float32)
         for i, _landmark in enumerate(landmark):
             np_arr[i, 0] = _landmark.x
             np_arr[i, 1] = _landmark.y
