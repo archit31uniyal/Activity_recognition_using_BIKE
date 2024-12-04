@@ -225,9 +225,9 @@ def main(args):
             logger.info("=> no checkpoint found at '{}'".format(config.pretrain))
 
     # "This is a video about {}" and then the class name goes there (this is CLIP input for sure) 
-    # classes = text_prompt(train_data)
-    # n_class = classes.size(0)
-    n_class = 10
+    classes = text_prompt(train_data)
+    n_class = classes.size(0)
+    # n_class = 10
 
 
     for name, param in model.named_parameters():
@@ -297,29 +297,29 @@ def train_handpose(model, fusion_model, train_loader, optimizer, criterion, scal
         # flatten? 336x3 matrix
         pose = pose.to(device).reshape(-1, pose.shape[-1])
         # idk what to do here
-        # b, num_token = pose.size()
+        b, num_token = pose.size()
         class_id = class_id.to(device)
 
-        # texts = classes
-        # texts = texts.to(device)
+        texts = classes
+        texts = texts.to(device)
 
         with autocast():
             if config.solver.loss_type in ['NCE', 'DS']:
-                # batch_texts = texts[class_id]
-                # batch_texts = batch_texts.to(device)
-                classname_sentence_features_cls, classname_sentence_features = model.module.encode_text(class_id, return_token=True)
+                batch_texts = texts[class_id]
+                batch_texts = batch_texts.to(device)
+                clip_class_embeddings, classname_sentence_features = model.module.encode_text(class_id, return_token=True)
                 classname_sentence_features = classname_sentence_features / classname_sentence_features.norm(dim=-1,keepdim=True)
-                classname_sentence_features_cls = classname_sentence_features_cls / classname_sentence_features_cls.norm(dim=-1,keepdim=True)
+                clip_class_embeddings = clip_class_embeddings / clip_class_embeddings.norm(dim=-1,keepdim=True)
 
                 logits = model.module.encode_text(batch_texts, return_token=True)
                 text_features = text_features / text_features.norm(dim=-1,keepdim=True)
                 text_cls_features = text_cls_features / text_cls_features.norm(dim=-1, keepdim=True)
                 classname_sentence_features = allgather(classname_sentence_features)
-                classname_sentence_features_cls = allgather(classname_sentence_features_cls)
+                clip_class_embeddings = allgather(clip_class_embeddings)
                 text_features = allgather(text_features)
                 text_cls_features = allgather(text_cls_features)
                 logit_scale = model.module.logit_scale.exp()
-                logits = logit_scale * fusion_model(query_cls_emb=text_cls_features, sentence_cls_features=classname_sentence_features_cls)
+                logits = logit_scale * fusion_model(pose)
                 class_id = gather_labels(class_id.to(device))
                 ground_truth = torch.tensor(gen_label(class_id), dtype=classname_sentence_features.dtype, device=device)
                 loss_sentence = criterion(logits, ground_truth)
@@ -388,7 +388,7 @@ def validate_text(epoch, val_loader, classes, device, model, fusion_model, confi
         text_cls_features = text_cls_features / text_cls_features.norm(dim=-1, keepdim=True)
         text_features = text_features / text_features.norm(dim=-1, keepdim=True)
 
-        for i, (classname_sentence, classname_sentence_mask,class_id) in enumerate(val_loader):
+        for i, (pose,class_id) in enumerate(val_loader):
             classname_sentence = classname_sentence.reshape(-1,classname_sentence.shape[-1])
             b,num_token = classname_sentence.size()
             class_id = class_id.to(device)
@@ -397,7 +397,7 @@ def validate_text(epoch, val_loader, classes, device, model, fusion_model, confi
             classname_sentence_features = classname_sentence_features / classname_sentence_features.norm(dim=-1, keepdim=True)
             classname_sentence_features_cls = classname_sentence_features_cls / classname_sentence_features_cls.norm(dim=-1, keepdim=True)
 
-            similarity = fusion_model(query_cls_emb=text_cls_features, sentence_cls_features=classname_sentence_features_cls)
+            similarity = fusion_model(pose)
             similarity = similarity.view(b, -1, n_class).softmax(dim=-1)  # [bs, 16, 400]
             similarity = similarity.mean(dim=1, keepdim=False)  # [bs, 400]
 
