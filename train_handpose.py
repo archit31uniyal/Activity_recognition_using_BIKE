@@ -151,7 +151,9 @@ def main(args):
     logger.info('train transforms: {}'.format(transform_train.transforms))
     logger.info('val transforms: {}'.format(transform_val.transforms))
 
-    handpose_head = hand_pose_logit(clip_state_dict)
+    handpose_head = hand_pose_logit(
+        config.network.sim_header,
+        config.network.interaction,clip_state_dict)
 
 
     if args.precision == "amp" or args.precision == "fp32":

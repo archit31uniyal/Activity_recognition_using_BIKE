@@ -170,9 +170,11 @@ class sentence_text_logit(nn.Module):
         ## yess! embed_dim is what we need. it is 768 then. we can use this and fix it if it gives us any errors
 
         embed_dim = clip_state_dict["text_projection"].shape[1] if clip_state_dict != None else 512
+        # Category Embedding
         self.query_fc = nn.Sequential(
             nn.Linear(embed_dim, embed_dim), nn.ReLU(inplace=True),
             nn.Linear(embed_dim, embed_dim))
+        # Attribute Embedding (Words so relatively simple)
         self.sentence_fc = nn.Sequential(
             nn.Linear(embed_dim, embed_dim), nn.ReLU(inplace=True),
             nn.Linear(embed_dim, embed_dim))
@@ -205,17 +207,40 @@ class sentence_text_logit(nn.Module):
 
 
 class hand_pose_logit(nn.Module):
-    def __init__(self, clip_state_dict):
+    def __init__(self, vid_head, interaction, clip_state_dict):
         super().__init__()
         # Won't this tell us the shape? This is how attribute does it and they use Linear layers too 
 
         ## yess! embed_dim is what we need. it is 768 then. we can use this and fix it if it gives us any errors
 
         embed_dim = clip_state_dict["text_projection"].shape[1] if clip_state_dict != None else 512
+        
+        # Category Embedding
         self.query_fc = nn.Sequential(
             nn.Linear(embed_dim, embed_dim), nn.ReLU(inplace=True),
             nn.Linear(embed_dim, embed_dim))
+        # Pose Embedding (Cannot use the same word structure need to copy videos)
+        # self.vid_header = vid_head
+        # self.interaction = interaction        
+        # assert vid_head in ["None", "Transf"]
+
+        # if self.vid_header == "Transf":
+        #     embed_dim = clip_state_dict["text_projection"].shape[1]
+
+        #     context_length = clip_state_dict["positional_embedding"].shape[0]
+        #     vocab_size = clip_state_dict["token_embedding.weight"].shape[0]
+        #     transformer_width = clip_state_dict["ln_final.weight"].shape[0]
+        #     transformer_heads = transformer_width // 64
+
+        #     transformer_layers = len(
+        #         set(k.split(".")[2] for k in clip_state_dict if k.startswith(f"transformer.resblocks")))
+
+        #     self.frame_position_embeddings = nn.Embedding(context_length, embed_dim)
+
+        #     self.transformer = TemporalTransformer(width=embed_dim, layers=6, heads=transformer_heads)
+        #     print('layer=6')
         self.handpose_fc = nn.Sequential(
+            nn.Flatten(),
             nn.Linear(32*16*21*3, embed_dim), nn.ReLU(inplace=True),
             nn.Linear(embed_dim, embed_dim))
         self.apply(self.init_weights)
