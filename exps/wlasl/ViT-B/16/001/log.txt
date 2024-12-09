@@ -211,3 +211,214 @@
     <datasets.transforms.GroupNormalize object at 0x7f9ef1887f10>
 )]
 [12/04 00:08:15] BIKE INFO: => loading checkpoint './k400-vit-b-16-f8.pt'
+[12/04 16:42:37] BIKE INFO: ------------------------------------
+[12/04 16:42:37] BIKE INFO: Environment Versions:
+[12/04 16:42:37] BIKE INFO: - Python: 3.11.5 (main, Sep 11 2023, 13:54:46) [GCC 11.2.0]
+[12/04 16:42:37] BIKE INFO: - PyTorch: 2.2.1
+[12/04 16:42:37] BIKE INFO: - TorchVison: 0.15.2+cu117
+[12/04 16:42:37] BIKE INFO: ------------------------------------
+[12/04 16:42:37] BIKE INFO: {   'data': {   'batch_size': 32,
+                'dataset': 'wlasl',
+                'image_tmpl': 'image_{:04d}.jpg',
+                'input_size': 224,
+                'label_list': 'lists/wlasl/labels.csv',
+                'modality': 'RGB',
+                'num_classes': 101,
+                'num_segments': 16,
+                'output_path': 'exps',
+                'random_shift': True,
+                'seg_length': 1,
+                'train_list': 'lists/wlasl/train_rgb_split_1.txt',
+                'train_root': '/home/tkg5kq/.cache/kagglehub/datasets/risangbaskoro/wlasl-processed/versions/5/frames_wlasl_10/',
+                'val_list': 'lists/wlasl/val_rgb_split_1.txt',
+                'val_root': '/home/tkg5kq/.cache/kagglehub/datasets/risangbaskoro/wlasl-processed/versions/5/frames_wlasl_10/',
+                'workers': 4},
+    'logging': {'eval_freq': 2, 'print_freq': 10},
+    'network': {   'arch': 'ViT-B/16',
+                   'drop': 0,
+                   'drop_out': 0.0,
+                   'emb_dropout': 0.0,
+                   'fix_text': True,
+                   'fix_video': False,
+                   'init': True,
+                   'interaction': 'VCS',
+                   'joint_st': False,
+                   'sim_header': 'Transf',
+                   'tm': False},
+    'pretrain': './k400-vit-b-16-f8.pt',
+    'resume': None,
+    'seed': 1024,
+    'solver': {   'clip_ratio': 0.1,
+                  'epochs': 20,
+                  'evaluate': False,
+                  'grad_accumulation_steps': 1,
+                  'loss_type': 'NCE',
+                  'lr': 5e-05,
+                  'lr_warmup_step': 5,
+                  'optim': 'adamw',
+                  'start_epoch': 0,
+                  'type': 'cosine',
+                  'weight_decay': 0.2}}
+[12/04 16:42:37] BIKE INFO: ------------------------------------
+[12/04 16:42:37] BIKE INFO: storing name: exps/wlasl/ViT-B/16/001
+[12/04 16:42:38] BIKE INFO: train transforms: [Compose(
+    <datasets.transforms.GroupScale object at 0x7fedb9527790>
+    Compose(
+    <datasets.transforms.GroupRandomSizedCrop object at 0x7fedb9846890>
+    <datasets.transforms.GroupRandomHorizontalFlip object at 0x7fedb9a8a490>
+)
+    <datasets.transforms.GroupRandomGrayscale object at 0x7fedb9526910>
+), Compose(
+    <datasets.transforms.Stack object at 0x7fedba07b8d0>
+    <datasets.transforms.ToTorchFormatTensor object at 0x7fedb9526810>
+    <datasets.transforms.GroupNormalize object at 0x7fedb985a610>
+)]
+[12/04 16:42:38] BIKE INFO: val transforms: [Compose(
+    <datasets.transforms.GroupScale object at 0x7fedb9526b90>
+    <datasets.transforms.GroupCenterCrop object at 0x7fedb9527550>
+), Compose(
+    <datasets.transforms.Stack object at 0x7fedb9527fd0>
+    <datasets.transforms.ToTorchFormatTensor object at 0x7fedb9527f10>
+    <datasets.transforms.GroupNormalize object at 0x7fedb9527e90>
+)]
+[12/04 16:43:15] BIKE INFO: ------------------------------------
+[12/04 16:43:15] BIKE INFO: Environment Versions:
+[12/04 16:43:15] BIKE INFO: - Python: 3.11.5 (main, Sep 11 2023, 13:54:46) [GCC 11.2.0]
+[12/04 16:43:15] BIKE INFO: - PyTorch: 2.2.1
+[12/04 16:43:15] BIKE INFO: - TorchVison: 0.15.2+cu117
+[12/04 16:43:15] BIKE INFO: ------------------------------------
+[12/04 16:43:15] BIKE INFO: {   'data': {   'batch_size': 32,
+                'dataset': 'wlasl',
+                'image_tmpl': 'image_{:04d}.jpg',
+                'input_size': 224,
+                'label_list': 'lists/wlasl/labels.csv',
+                'modality': 'RGB',
+                'num_classes': 101,
+                'num_segments': 16,
+                'output_path': 'exps',
+                'random_shift': True,
+                'seg_length': 1,
+                'train_list': 'lists/wlasl/train_rgb_split_1.txt',
+                'train_root': '/home/tkg5kq/.cache/kagglehub/datasets/risangbaskoro/wlasl-processed/versions/5/frames_wlasl_10/',
+                'val_list': 'lists/wlasl/val_rgb_split_1.txt',
+                'val_root': '/home/tkg5kq/.cache/kagglehub/datasets/risangbaskoro/wlasl-processed/versions/5/frames_wlasl_10/',
+                'workers': 4},
+    'logging': {'eval_freq': 2, 'print_freq': 10},
+    'network': {   'arch': 'ViT-B/16',
+                   'drop': 0,
+                   'drop_out': 0.0,
+                   'emb_dropout': 0.0,
+                   'fix_text': True,
+                   'fix_video': False,
+                   'init': True,
+                   'interaction': 'VCS',
+                   'joint_st': False,
+                   'sim_header': 'Transf',
+                   'tm': False},
+    'pretrain': './k400-vit-b-16-f8.pt',
+    'resume': None,
+    'seed': 1024,
+    'solver': {   'clip_ratio': 0.1,
+                  'epochs': 20,
+                  'evaluate': False,
+                  'grad_accumulation_steps': 1,
+                  'loss_type': 'NCE',
+                  'lr': 5e-05,
+                  'lr_warmup_step': 5,
+                  'optim': 'adamw',
+                  'start_epoch': 0,
+                  'type': 'cosine',
+                  'weight_decay': 0.2}}
+[12/04 16:43:15] BIKE INFO: ------------------------------------
+[12/04 16:43:15] BIKE INFO: storing name: exps/wlasl/ViT-B/16/001
+[12/04 16:43:16] BIKE INFO: train transforms: [Compose(
+    <datasets.transforms.GroupScale object at 0x7fa7704a37d0>
+    Compose(
+    <datasets.transforms.GroupRandomSizedCrop object at 0x7fa7704a3e90>
+    <datasets.transforms.GroupRandomHorizontalFlip object at 0x7fa7704a3950>
+)
+    <datasets.transforms.GroupRandomGrayscale object at 0x7fa7704a3b10>
+), Compose(
+    <datasets.transforms.Stack object at 0x7fa7708121d0>
+    <datasets.transforms.ToTorchFormatTensor object at 0x7fa770940210>
+    <datasets.transforms.GroupNormalize object at 0x7fa7704a3810>
+)]
+[12/04 16:43:16] BIKE INFO: val transforms: [Compose(
+    <datasets.transforms.GroupScale object at 0x7fa7704a38d0>
+    <datasets.transforms.GroupCenterCrop object at 0x7fa7704a3f90>
+), Compose(
+    <datasets.transforms.Stack object at 0x7fa7704a3f50>
+    <datasets.transforms.ToTorchFormatTensor object at 0x7fa7704a3ad0>
+    <datasets.transforms.GroupNormalize object at 0x7fa7704a3d10>
+)]
+[12/04 16:43:47] BIKE INFO: ------------------------------------
+[12/04 16:43:47] BIKE INFO: Environment Versions:
+[12/04 16:43:47] BIKE INFO: - Python: 3.11.5 (main, Sep 11 2023, 13:54:46) [GCC 11.2.0]
+[12/04 16:43:47] BIKE INFO: - PyTorch: 2.2.1
+[12/04 16:43:47] BIKE INFO: - TorchVison: 0.15.2+cu117
+[12/04 16:43:47] BIKE INFO: ------------------------------------
+[12/04 16:43:47] BIKE INFO: {   'data': {   'batch_size': 32,
+                'dataset': 'wlasl',
+                'image_tmpl': 'image_{:04d}.jpg',
+                'input_size': 224,
+                'label_list': 'lists/wlasl/labels.csv',
+                'modality': 'RGB',
+                'num_classes': 101,
+                'num_segments': 16,
+                'output_path': 'exps',
+                'random_shift': True,
+                'seg_length': 1,
+                'train_list': 'lists/wlasl/train_rgb_split_1.txt',
+                'train_root': '/home/tkg5kq/.cache/kagglehub/datasets/risangbaskoro/wlasl-processed/versions/5/frames_wlasl_10/',
+                'val_list': 'lists/wlasl/val_rgb_split_1.txt',
+                'val_root': '/home/tkg5kq/.cache/kagglehub/datasets/risangbaskoro/wlasl-processed/versions/5/frames_wlasl_10/',
+                'workers': 4},
+    'logging': {'eval_freq': 2, 'print_freq': 10},
+    'network': {   'arch': 'ViT-B/16',
+                   'drop': 0,
+                   'drop_out': 0.0,
+                   'emb_dropout': 0.0,
+                   'fix_text': True,
+                   'fix_video': False,
+                   'init': True,
+                   'interaction': 'VCS',
+                   'joint_st': False,
+                   'sim_header': 'Transf',
+                   'tm': False},
+    'pretrain': './k400-vit-b-16-f8.pt',
+    'resume': None,
+    'seed': 1024,
+    'solver': {   'clip_ratio': 0.1,
+                  'epochs': 20,
+                  'evaluate': False,
+                  'grad_accumulation_steps': 1,
+                  'loss_type': 'NCE',
+                  'lr': 5e-05,
+                  'lr_warmup_step': 5,
+                  'optim': 'adamw',
+                  'start_epoch': 0,
+                  'type': 'cosine',
+                  'weight_decay': 0.2}}
+[12/04 16:43:47] BIKE INFO: ------------------------------------
+[12/04 16:43:47] BIKE INFO: storing name: exps/wlasl/ViT-B/16/001
+[12/04 16:43:48] BIKE INFO: train transforms: [Compose(
+    <datasets.transforms.GroupScale object at 0x7f459ac7cc50>
+    Compose(
+    <datasets.transforms.GroupRandomSizedCrop object at 0x7f459afd77d0>
+    <datasets.transforms.GroupRandomHorizontalFlip object at 0x7f459aacccd0>
+)
+    <datasets.transforms.GroupRandomGrayscale object at 0x7f459a95f6d0>
+), Compose(
+    <datasets.transforms.Stack object at 0x7f459ac7f390>
+    <datasets.transforms.ToTorchFormatTensor object at 0x7f459b4b65d0>
+    <datasets.transforms.GroupNormalize object at 0x7f46f926f810>
+)]
+[12/04 16:43:48] BIKE INFO: val transforms: [Compose(
+    <datasets.transforms.GroupScale object at 0x7f459a95e850>
+    <datasets.transforms.GroupCenterCrop object at 0x7f459a95f590>
+), Compose(
+    <datasets.transforms.Stack object at 0x7f459a95ff10>
+    <datasets.transforms.ToTorchFormatTensor object at 0x7f459a95fe10>
+    <datasets.transforms.GroupNormalize object at 0x7f459a95fd90>
+)]
+[12/04 16:43:49] BIKE INFO: => loading checkpoint './k400-vit-b-16-f8.pt'

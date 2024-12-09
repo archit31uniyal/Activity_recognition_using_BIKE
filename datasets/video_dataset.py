@@ -128,6 +128,10 @@ class PoseDataset(VisionDataset):
     def __getitem__(self, index) -> Tuple[Tensor, Tensor, int, str]:
         video, audio, info, video_idx = self.video_clips.get_clip(index)
         label = self.samples[self.indices[video_idx]][1]
+        # one hot
+        tmp = np.zeros(len(self.class_list))
+        tmp[label] = 1
+        label = torch.from_numpy(tmp).type(torch.FloatTensor)
         sample_fname = self.samples[self.indices[video_idx]][0]
 
         pose = self.media_pipe.get_3d_hand_pose(video)

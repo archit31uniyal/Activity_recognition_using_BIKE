@@ -12,6 +12,9 @@ import torchvision
 from torchvision import transforms
 from utils.logger import setup_logger
 import torch.distributed as dist
+from datetime import datetime
+
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 class ResBlockMLP(nn.Module):
     def __init__(self, input_size, output_size):
@@ -40,7 +43,7 @@ class ResBlockMLP(nn.Module):
 class PoseDetector(nn.Module):
     def __init__(self, num_frames, num_points, num_coor, output_size, num_layers=1, num_blocks=1):
         super(PoseDetector, self).__init__()
-        seq_len = num_frames*num_points*num_coor
+        seq_len = num_points*num_coor
         self.num_layers = num_layers
         # flatten
         # print(seq_len, seq_len*4)
@@ -48,61 +51,88 @@ class PoseDetector(nn.Module):
             nn.Linear(seq_len, 4*seq_len),
             nn.ReLU(),
             nn.Linear(4*seq_len, 128))
-        self.lstm = nn.LSTM(128, 128, self.num_layers) #, batch_first=True)
+        self.lstm = nn.LSTM(
+            input_size=128, 
+            hidden_size=128, 
+            num_layers=self.num_layers, 
+            batch_first=True)
 
         blocks = [ResBlockMLP(128, 128) for _ in range(num_blocks)]
         self.res_blocks = nn.Sequential(*blocks)
 
-        self.fc_out = nn.Linear(128, output_size)
+        self.fc_out = nn.Sequential(
+            nn.Linear((num_frames*128), (num_frames*128)),
+            nn.Linear((num_frames*128), (num_frames*128)//2),
+            nn.Linear((num_frames*128)//2, output_size)
+        )
         self.act = nn.ReLU()
-        # self.softmax = nn.Softmax(output_size)
+        self.softmax = nn.Softmax(dim=1)
 
-    def forward(self, x, h, m):
-        # print(x.shape)
+    # https://www.youtube.com/watch?v=lyUT6dOARGs&ab_channel=LukeDitria
+    def forward(self, x, lengths):
+        # Sort sequences by length in descending order
+        lengths, sorted_idx = lengths.sort(0, descending=True)
+        x = x[sorted_idx]
+
         # want it to be 32x(dimension size)
-        x = x.reshape(x.shape[0], -1)
-        # print(x.shape)
-        x = self.input_mlp(x).unsqueeze(0)
+        # print(f'input     {x.shape}', flush=True)
+        x = x.reshape(x.shape[0], x.shape[1], -1)
+        # print(f'reshape   {x.shape}', flush=True)
+        x = self.input_mlp(x)
+        # print(f'input_mlp {x.shape}', flush=True)
+        # Pack the padded sequence
+        packed_input = pack_padded_sequence(x, lengths.cpu(), batch_first=True, enforce_sorted=True)
+        # Pass through LSTM
+        packed_output, (hn, cn) = self.lstm(packed_input)
+        # Unpack the sequence
+        output, _ = pad_packed_sequence(packed_output, batch_first=True)
         
-        x, (h, m) = self.lstm(x, (h, m))
+        # Restore the original order
+        _, original_idx = sorted_idx.sort(0)
+        output = output[original_idx]
+        hn = hn[:, original_idx, :]
+        cn = cn[:, original_idx, :]
 
+        # print(f'lstm      {x.shape}', flush=True)
         x = self.act(self.res_blocks(x)).squeeze(0)
-
-        return self.fc_out(x), h, m
+        # flatten
+        # print(f'resblock  {x.shape}', flush=True)
+        x = x.reshape(x.shape[0], -1)
+        # print(f'reshape   {x.shape}', flush=True)
+        x = self.fc_out(x)
+        # print(f'fc        {x.shape}', flush=True)
+        return self.softmax(x)
 
 def train(pd, train_loader, optimizer, criterion, epoch, device, logger, batch_size=32):
   cnt = 0
   training_loss_logger = []
   loss = 0
+  hidden_size = 128
   for i, (video, pose, class_id, sample_fname) in enumerate(train_loader):
-    curr_len = batch_size
-    if pose.shape[0] < batch_size:
-      curr_len = pose.shape[0]
-      pose = pose.repeat(2, 1, 1, 1)
-      pose = pose[:batch_size, :, :, : ]
+    # curr_len = batch_size
+    # if pose.shape[0] < batch_size:
+    #   curr_len = pose.shape[0]
+    #   pose = pose.repeat(2, 1, 1, 1)
+    #   pose = pose[:batch_size, :, :, : ]
 
-    if class_id.shape[0] < batch_size:
-      curr_len = pose.shape[0]
-      class_id = class_id.repeat(2)[:batch_size]
-    
-    hidden = torch.zeros(1, pose.shape[0], 128)
-    mem = torch.zeros(1, pose.shape[0], 128)
+    # if class_id.shape[0] < batch_size:
+    #   curr_len = pose.shape[0]
+    #   class_id = class_id.repeat(2)[:batch_size]
+    # hidden = torch.zeros(1, pose.shape[0], hidden_size, device=device)
+    # mem = torch.zeros(1, pose.shape[0], hidden_size, device=device)
+
     pose = pose.type(torch.FloatTensor)
 
     # move to device
     pose = pose.to(device)
-    # One hot encoding
-    tmp = np.zeros((batch_size, 10))
-    for i, idx in enumerate(class_id):
-        tmp[i][idx] = 1
-    class_id = torch.from_numpy(tmp).type(torch.FloatTensor)
     class_id = class_id.to(device)
-    hidden = hidden.to(device)
-    mem = mem.to(device)
 
-    out, h, m = pd(pose, hidden, mem)
+    lengths = torch.zeros(batch_size) + 1
+    lengths = lengths.to(device)
+    out = pd(pose, lengths)
 
-    loss = criterion(out[:, :curr_len], class_id[:, :curr_len])
+    gt = class_id.argmax(axis=1)
+    loss = criterion(out, gt)
 
     optimizer.zero_grad()
     loss.backward()
@@ -139,11 +169,11 @@ def main():
     num_segments = 16
     modality = 'video'
     num_epoch = 40
-    freq = 2
+    freq = 4
 
     use_cuda = torch.cuda.is_available()
     if use_cuda:
-        device_ids=[0, 1, 2, 3]
+        device_ids=[0]
         gpu_ids = list(map(int, device_ids))
         cuda='cuda:'+ str(gpu_ids[0])
         # cudnn.benchmark = True
@@ -168,6 +198,7 @@ def main():
         '/home/tkg5kq/.cache/kagglehub/datasets/risangbaskoro/wlasl-processed/versions/5/resized_wlasl_10/', 
         './lists/wlasl/',
         num_segments=num_segments,
+        frame_rate=15,
         modality=modality,
         transform=tfs,
         train=True)
@@ -176,6 +207,7 @@ def main():
         '/home/tkg5kq/.cache/kagglehub/datasets/risangbaskoro/wlasl-processed/versions/5/resized_wlasl_10/', 
         './lists/wlasl/',
         num_segments=num_segments,
+        frame_rate=15,
         modality=modality,
         transform=tfs,
         train=False)
@@ -185,16 +217,16 @@ def main():
     train_loader = DataLoader(
         train_data, 
         batch_size=batch_size, 
-        drop_last=False, 
+        drop_last=True, 
         shuffle=True)         
-    # val_loader = DataLoader(
-    #     val_data, 
-    #     batch_size=batch_size, 
-    #     drop_last=False, 
-    #     shuffle=True)
+    val_loader = DataLoader(
+        val_data, 
+        batch_size=batch_size, 
+        drop_last=True, 
+        shuffle=True)
 
-    model = PoseDetector(16, 21, 3, num_classes, num_layers=1, num_blocks=1)
-    # model = nn.DataParallel(model, device_ids=device_ids)
+    model = PoseDetector(16, 21, 3, num_classes, num_layers=5, num_blocks=1)
+    model = nn.DataParallel(model, device_ids=device_ids)
     model.to(device)
 
     learning_rate = 1e-4
@@ -210,50 +242,44 @@ def main():
         logger.info(f'Epoch {epoch}: total {np.mean(loss)}')
         total_loss.append(loss)
 
-        # if (epoch+1) % freq == 0:
-        #     model.eval()
-        #     with torch.no_grad():
-        #         num_samples = 0
-        #         num_correct = 0
-        #         logger.info('Starting validation....')
-        #         for i, (video, pose, class_id, sample_fname) in enumerate(val_loader):
-        #             expected_len = batch_size
-        #             curr_len = batch_size
-        #             # logger.info(f'{video.shape}, {pose.shape}, {class_id}, {sample_fname}')
-        #             if pose.shape[0] < expected_len:
-        #                 curr_len = pose.shape[0]
-        #                 pose = pose.repeat(2, 1, 1, 1)
-        #                 pose = pose[:expected_len, :, :, : ]
-
-        #             if class_id.shape[0] < expected_len:
-        #                 curr_len = pose.shape[0]
-        #                 class_id = class_id.repeat(2)[:expected_len]
+        if (epoch+1) >= 10 and (epoch+1) % freq == 0:
+            model.eval()
+            with torch.no_grad():
+                num_samples = 0
+                num_correct = 0
+                logger.info('Starting validation....')
+                for i, (video, pose, class_id, sample_fname) in enumerate(val_loader):
                     
-        #             hidden = torch.zeros(model.num_layers, batch_size, 128)
-        #             mem = torch.zeros(model.num_layers, batch_size, 128)
-        #             pose = pose.type(torch.FloatTensor)
+                    pose = pose.type(torch.FloatTensor)
 
-        #             # move to device
-        #             pose = pose.to(device)
-        #             class_id = class_id.to(device)
-        #             hidden = hidden.to(device)
-        #             mem = mem.to(device)
+                    # move to device
+                    pose = pose.to(device)
+                    class_id = class_id.to(device)
+                    lengths = torch.zeros(batch_size) + 1
+                    lengths = lengths.to(device)
 
-        #             out, h, m = model(pose, hidden, mem)
+                    out = model(pose, lengths)
 
-        #             one_hot = out[:, :curr_len].argmax(axis=1)
-        #             gt = class_id[:curr_len]
-        #             # logger.info(f'{one_hot.dtype}, {one_hot.shape}, {one_hot}')
-        #             # logger.info(f'{gt.dtype}, {gt.shape}, {gt}')
+                    # logger.debug(f'{out.dtype}, {out.shape}, {out}')
+                    one_hot = out.argmax(axis=1)
+                    gt = class_id.argmax(axis=1)
+                    # logger.debug(f'{one_hot.dtype}, {one_hot.shape}, {one_hot}')
+                    # logger.debug(f'{gt.dtype}, {gt.shape}, {gt}')
 
-        #             num_correct += int(torch.sum(gt == one_hot))
-        #             num_samples += curr_len
+                    # logger.info(f'{one_hot.shape} {one_hot}')
+                    # logger.info(f'{gt.shape} {gt}')
+                    num_correct += int(torch.sum(gt == one_hot))
+                    num_samples += batch_size
+                    logger.info(f'Current Accuracy: {num_correct/num_samples}%')
                 
-        #         logger.info(f'Accuracy: {num_correct/num_samples}%')
+                logger.info(f'Accuracy: {num_correct/num_samples}%')
                     
 
-        #     # Save the model
-        #     torch.save(model.state_dict(), working_dir + '/model.pt')
+            # Save the model
+            current_date = datetime.now()
+            formatted_date = current_date.strftime('%Y-%m-%d')
+            filename = f"mode_{formatted_date}.txt"
+            torch.save(model.state_dict(), working_dir + '/' + filename)
 
 if __name__ == '__main__':
     main()
