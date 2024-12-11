@@ -15,6 +15,9 @@ import torch.distributed as dist
 from datetime import datetime
 
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+import matplotlib.pyplot as plt
+import cv2
+import mediapipe as mp
 
 class ResBlockMLP(nn.Module):
     def __init__(self, input_size, output_size):
@@ -147,6 +150,73 @@ def train(pd, train_loader, optimizer, criterion, epoch, device, logger, batch_s
 
   return training_loss_logger
 
+from mediapipe.python.solutions.drawing_utils import DrawingSpec, RED_COLOR, BLACK_COLOR, _normalize_color
+from mediapipe.framework.formats import landmark_pb2
+from typing import List, Mapping, Optional, Tuple, Union
+def plot_landmarkss(landmark_list: landmark_pb2.NormalizedLandmarkList,
+                   connections: Optional[List[Tuple[int, int]]] = None,
+                   landmark_drawing_spec: DrawingSpec = DrawingSpec(
+                       color=RED_COLOR, thickness=5),
+                   connection_drawing_spec: DrawingSpec = DrawingSpec(
+                       color=BLACK_COLOR, thickness=5),
+                   elevation: int = 10,
+                   azimuth: int = 10):
+  """Plot the landmarks and the connections in matplotlib 3d.
+
+  Args:
+    landmark_list: A normalized landmark list proto message to be plotted.
+    connections: A list of landmark index tuples that specifies how landmarks to
+      be connected.
+    landmark_drawing_spec: A DrawingSpec object that specifies the landmarks'
+      drawing settings such as color and line thickness.
+    connection_drawing_spec: A DrawingSpec object that specifies the
+      connections' drawing settings such as color and line thickness.
+    elevation: The elevation from which to view the plot.
+    azimuth: the azimuth angle to rotate the plot.
+
+  Raises:
+    ValueError: If any connection contains an invalid landmark index.
+  """
+  if not landmark_list:
+    return
+  plt.figure(figsize=(10, 10))
+  ax = plt.axes(projection='3d')
+  ax.view_init(elev=elevation, azim=azimuth)
+  plotted_landmarks = {}
+  for idx, landmark in enumerate(landmark_list.landmark):
+    if ((landmark.HasField('visibility') and
+         landmark.visibility < _VISIBILITY_THRESHOLD) or
+        (landmark.HasField('presence') and
+         landmark.presence < _PRESENCE_THRESHOLD)):
+      continue
+    ax.scatter3D(
+        xs=[-landmark.z],
+        ys=[landmark.x],
+        zs=[-landmark.y],
+        color=_normalize_color(landmark_drawing_spec.color[::-1]),
+        linewidth=landmark_drawing_spec.thickness)
+    plotted_landmarks[idx] = (-landmark.z, landmark.x, -landmark.y)
+  if connections:
+    num_landmarks = len(landmark_list.landmark)
+    # Draws the connections if the start and end landmarks are both visible.
+    for connection in connections:
+      start_idx = connection[0]
+      end_idx = connection[1]
+      if not (0 <= start_idx < num_landmarks and 0 <= end_idx < num_landmarks):
+        raise ValueError(f'Landmark index is out of range. Invalid connection '
+                         f'from landmark #{start_idx} to landmark #{end_idx}.')
+      if start_idx in plotted_landmarks and end_idx in plotted_landmarks:
+        landmark_pair = [
+            plotted_landmarks[start_idx], plotted_landmarks[end_idx]
+        ]
+        ax.plot3D(
+            xs=[landmark_pair[0][0], landmark_pair[1][0]],
+            ys=[landmark_pair[0][1], landmark_pair[1][1]],
+            zs=[landmark_pair[0][2], landmark_pair[1][2]],
+            color=_normalize_color(connection_drawing_spec.color[::-1]),
+            linewidth=connection_drawing_spec.thickness)
+  plt.savefig("./testhand.png")
+
 def main():
     working_dir = os.path.join('./', 'wlasl', 'new', '001')
 
@@ -164,12 +234,16 @@ def main():
     logger.info("------------------------------------")
     logger.info("storing name: {}".format(working_dir))
 
+    torch.manual_seed(100)
+
+    learning_rate = 1e-3
     num_classes = 10
     batch_size = 8
     num_segments = 16
     modality = 'video'
-    num_epoch = 40
+    num_epoch = 100
     freq = 4
+    frame_rate = 17
 
     use_cuda = torch.cuda.is_available()
     if use_cuda:
@@ -180,25 +254,23 @@ def main():
 
     device= torch.device(cuda if use_cuda else 'cpu')
 
-    TIME = 0
-    HEIGHT = 1
-    WIDTH = 2
-    CHANNEL = 3
     tfs = transforms.Compose([
         # TODO: this should be done by a video-level transfrom when PyTorch provides transforms.ToTensor() for video
         # scale in [0, 1] of type float
         transforms.Lambda(lambda x: x / 255.),
         # reshape into (C, W, T, H) for easier convolutions
-        transforms.Lambda(lambda x: x.permute(TIME,CHANNEL,  HEIGHT, WIDTH)),
+        transforms.Lambda(lambda x: x.permute(0, 3, 1, 2)),
         # rescale to the most common size
         transforms.Lambda(lambda x: nn.functional.interpolate(x, (256, 320))),
+        # reshape into (C, W, T, H) for easier convolutions
+        transforms.Lambda(lambda x: x.permute(0,  2, 3,1)),
     ])
 
     train_data = PoseDataset(
         '/home/tkg5kq/.cache/kagglehub/datasets/risangbaskoro/wlasl-processed/versions/5/resized_wlasl_10/', 
         './lists/wlasl/',
         num_segments=num_segments,
-        frame_rate=15,
+        frame_rate=frame_rate,
         modality=modality,
         transform=tfs,
         train=True)
@@ -207,7 +279,7 @@ def main():
         '/home/tkg5kq/.cache/kagglehub/datasets/risangbaskoro/wlasl-processed/versions/5/resized_wlasl_10/', 
         './lists/wlasl/',
         num_segments=num_segments,
-        frame_rate=15,
+        frame_rate=frame_rate,
         modality=modality,
         transform=tfs,
         train=False)
@@ -229,11 +301,27 @@ def main():
     model = nn.DataParallel(model, device_ids=device_ids)
     model.to(device)
 
-    learning_rate = 1e-4
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     criterion = nn.CrossEntropyLoss()
 
-    # import pdb; pdb.set_trace()
+    # idx = 13
+    # example = val_data.__getitem__(0)
+    # video = example[0]
+    # pose = example[1]
+    # plt.figure()
+    # plt.imshow(video[idx])
+    # plt.savefig('./test.png')
+
+    # print(f'TESTTEST {pose[idx].shape}')
+    
+    # mp_hands = mp.solutions.hands
+    # hand_world_landmarks = val_data.media_pipe.numpy_to_mediapipe([pose[idx]])
+    # plot_landmarkss(
+    #     hand_world_landmarks[0], 
+    #     mp_hands.HAND_CONNECTIONS, 
+    #     azimuth=5
+    # )
+    
     total_loss = []
     for epoch in range(num_epoch):
         # Train the model

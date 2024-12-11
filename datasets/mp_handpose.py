@@ -42,6 +42,7 @@ import numpy as np
 import cv2
 import os
 import sys
+from mediapipe.framework.formats.landmark_pb2 import LandmarkList, Landmark
 
 class MPHandpose():
     def __init__(self):
